@@ -14,16 +14,19 @@ public class SmartThreadPoolManager {
     private final List<SmartThreadPoolListEmptyListenerStructure> smartThreadPoolListEmptyListenerList = Collections.synchronizedList(new ArrayList<>());
     private final List<SmartThreadPoolListFinishedListenerStructure> smartThreadPoolListFinishedListenerList = Collections.synchronizedList(new ArrayList<>());
 
-    private SmartThreadPoolManager() { }
+    private SmartThreadPoolManager() {}
 
     public interface SmartThreadPoolListEmptyListener {
+
         void apply();
+
     }
 
     public interface SmartThreadPoolListFinishedListener {
-        void apply();
-    }
 
+        void apply();
+
+    }
     public static class SmartThreadPoolListEmptyListenerStructure {
 
         private List<SmartThreadPool> smartThreadPoolList;
@@ -34,25 +37,26 @@ public class SmartThreadPoolManager {
             return smartThreadPoolList;
         }
 
-        public int getPriority() {
-            return priority;
+        public void setSmartThreadPoolList(List<SmartThreadPool> smartThreadPoolList) {
+            this.smartThreadPoolList = smartThreadPoolList;
         }
 
         public SmartThreadPoolListEmptyListener getSmartThreadPoolListEmptyListener() {
             return smartThreadPoolListEmptyListener;
         }
 
-        public void setSmartThreadPoolList(List<SmartThreadPool> smartThreadPoolList) {
-            this.smartThreadPoolList = smartThreadPoolList;
+        public void setSmartThreadPoolListEmptyListener(SmartThreadPoolListEmptyListener smartThreadPoolListEmptyListener) {
+            this.smartThreadPoolListEmptyListener = smartThreadPoolListEmptyListener;
+        }
+
+        public int getPriority() {
+            return priority;
         }
 
         public void setPriority(int priority) {
             this.priority = priority;
         }
 
-        public void setSmartThreadPoolListEmptyListener(SmartThreadPoolListEmptyListener smartThreadPoolListEmptyListener) {
-            this.smartThreadPoolListEmptyListener = smartThreadPoolListEmptyListener;
-        }
     }
 
     public static class SmartThreadPoolListFinishedListenerStructure {
@@ -65,25 +69,26 @@ public class SmartThreadPoolManager {
             return smartThreadPoolList;
         }
 
-        public SmartThreadPoolListFinishedListener getSmartThreadPoolListFinishedListener() {
-            return smartThreadPoolListFinishedListener;
-        }
-
-        public int getPriority() {
-            return priority;
-        }
-
         public void setSmartThreadPoolList(List<SmartThreadPool> smartThreadPoolList) {
             this.smartThreadPoolList = smartThreadPoolList;
+        }
+
+        public SmartThreadPoolListFinishedListener getSmartThreadPoolListFinishedListener() {
+            return smartThreadPoolListFinishedListener;
         }
 
         public void setSmartThreadPoolListFinishedListener(SmartThreadPoolListFinishedListener smartThreadPoolListFinishedListener) {
             this.smartThreadPoolListFinishedListener = smartThreadPoolListFinishedListener;
         }
 
+        public int getPriority() {
+            return priority;
+        }
+
         public void setPriority(int priority) {
             this.priority = priority;
         }
+
     }
 
     public static SmartThreadPoolManager getInstance() {
@@ -142,7 +147,7 @@ public class SmartThreadPoolManager {
                 List<SmartThreadPoolListFinishedListenerStructure> smartThreadPoolListFinishedListenerStructureToRemove = new ArrayList<>();
                 for (SmartThreadPoolListFinishedListenerStructure smartThreadPoolListFinishedListenerStructure : smartThreadPoolListFinishedListenerList) {
                     List<SmartThreadPool> eligibleSmartThreadPoolList = smartThreadPoolListFinishedListenerStructure.getSmartThreadPoolList();
-                    if (eligibleSmartThreadPoolList.stream().allMatch(SmartThreadPool::isInterrupted)) {
+                    if (eligibleSmartThreadPoolList.stream().allMatch(SmartThreadPool::isClosed)) {
                         CompletableFuture.runAsync(() -> smartThreadPoolListFinishedListenerStructure.getSmartThreadPoolListFinishedListener().apply());
                         smartThreadPoolListFinishedListenerStructureToRemove.add(smartThreadPoolListFinishedListenerStructure);
                     }

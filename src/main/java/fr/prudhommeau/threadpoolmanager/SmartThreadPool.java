@@ -21,6 +21,7 @@ public class SmartThreadPool {
     private final List<SmartThread> runningInstances = Collections.synchronizedList(new ArrayList<>());
     private final List<ThreadPoolEmptyEventListener> threadPoolEmptyEventListenerList = Collections.synchronizedList(new ArrayList<>());
     private final List<ThreadPoolFinishedEventListener> threadPoolFinishedEventListenerList = Collections.synchronizedList(new ArrayList<>());
+    private final List<ThreadPoolInterruptingEventListener> threadPoolInterruptingEventListenerList = Collections.synchronizedList(new ArrayList<>());
     private final UUID uuid = UUID.randomUUID();
 
     private Object initiator;
@@ -29,13 +30,15 @@ public class SmartThreadPool {
     private long numberOfSmartThreadInterrupted = 0;
     private int runningThreadPoolMaxSize = 200;
     private boolean autoClose = true;
+    private boolean closed = false;
     private boolean interrupted = false;
     private boolean started = false;
+    private boolean paused = false;
 
     public SmartThreadPool() {
         SmartThreadPoolManager.getInstance().addSmartThreadPool(this);
         Thread smartThreadPoolFinisherThread = new Thread(() -> {
-            while (!interrupted) {
+            while (!closed) {
                 try {
                     Thread.sleep(100);
                 } catch (InterruptedException e) {
@@ -44,18 +47,32 @@ public class SmartThreadPool {
             }
             threadPoolFinishedEventListenerList.forEach(ThreadPoolFinishedEventListener::apply);
             threadPoolFinishedEventListenerList.clear();
-            logger.debug("Smart thread pool has been closed - numberOfSmartThreadProcessed [{}], numberOfSmartThreadInterrupted [{}], smartThreadPool [{}]", numberOfSmartThreadProcessed, numberOfSmartThreadInterrupted, this);
+            if (!interrupted) {
+                logger.debug("Closing smart thread pool - numberOfSmartThreadProcessed [{}], numberOfSmartThreadInterrupted [{}], smartThreadPool [{}]", numberOfSmartThreadProcessed, numberOfSmartThreadInterrupted, this);
+            } else {
+                logger.debug("Interrupting smart thread pool - numberOfSmartThreadProcessed [{}], numberOfSmartThreadInterrupted [{}], smartThreadPool [{}]", numberOfSmartThreadProcessed, numberOfSmartThreadInterrupted, this);
+            }
         });
         smartThreadPoolFinisherThread.setName(SMART_THREAD_POOL_FINISHER_THREAD_NAME);
         smartThreadPoolFinisherThread.start();
     }
 
     public interface ThreadPoolEmptyEventListener {
+
         void apply();
+
     }
 
     public interface ThreadPoolFinishedEventListener {
+
         void apply();
+
+    }
+
+    public interface ThreadPoolInterruptingEventListener {
+
+        void apply();
+
     }
 
     public void interruptSmartThread(SmartThread smartThread) {
@@ -97,13 +114,13 @@ public class SmartThreadPool {
     }
 
     public void addToQueue(SmartThread smartThread) {
-        if (interrupted) {
-            logger.debug("Skipping adding to queue smart thread because smart thread pool is interrupted - smartThread [{}], smartThreadPool [{}]", smartThread, this);
+        if (closed) {
+            logger.debug("Skipping adding to queue smart thread because smart thread pool is closed - smartThread [{}], smartThreadPool [{}]", smartThread, this);
             return;
         }
         lock.lock();
         try {
-            if (!started || runningInstances.size() >= runningThreadPoolMaxSize) {
+            if (!started || paused || runningInstances.size() >= runningThreadPoolMaxSize) {
                 queuedInstances.add(smartThread);
             } else {
                 runningInstances.add(smartThread);
@@ -128,9 +145,10 @@ public class SmartThreadPool {
     }
 
     public void interrupt() {
-        logger.debug("Interrupting smart thread pool - smartThreadPool [{}]", this);
+        threadPoolInterruptingEventListenerList.forEach(ThreadPoolInterruptingEventListener::apply);
         lock.lock();
         try {
+            closed = true;
             interrupted = true;
             List<SmartThread> smartThreadList = new ArrayList<>(queuedInstances);
             smartThreadList.forEach(Thread::interrupt);
@@ -148,7 +166,7 @@ public class SmartThreadPool {
             logger.warn("Cannot close smart thread pool because it remains running or queued instances - smartThreadPool [{}]", this);
             return;
         }
-        interrupted = true;
+        closed = true;
     }
 
     public void registerThreadPoolEmptyEventListener(ThreadPoolEmptyEventListener listener) {
@@ -159,11 +177,15 @@ public class SmartThreadPool {
         threadPoolFinishedEventListenerList.add(listener);
     }
 
+    public void registerThreadPoolInterruptingEventListener(ThreadPoolInterruptingEventListener listener) {
+        threadPoolInterruptingEventListenerList.add(listener);
+    }
+
     private void checkSmartThreadPoolState() {
         boolean hasAliveThread = false;
         lock.lock();
         try {
-            if (runningInstances.size() < runningThreadPoolMaxSize && queuedInstances.size() > 0) {
+            if (runningInstances.size() < runningThreadPoolMaxSize && queuedInstances.size() > 0 && !paused) {
                 queuedInstances.size();
                 int freeSpace = runningThreadPoolMaxSize - runningInstances.size();
                 for (int i = 0; i < freeSpace; i++) {
@@ -185,11 +207,11 @@ public class SmartThreadPool {
         } finally {
             lock.unlock();
         }
-        if (!hasAliveThread) {
+        if (!hasAliveThread && !paused) {
             logger.debug("Smart thread pool has no more alive thread to be processed - smartThreadPool [{}]", this);
             if (autoClose) {
-                logger.debug("Smart thread pool will be interrupted next to auto-close mechanism - smartThreadPool [{}]", this);
-                interrupted = true;
+                logger.debug("Smart thread pool will be closed next to auto-close mechanism - smartThreadPool [{}]", this);
+                closed = true;
             }
             threadPoolEmptyEventListenerList.forEach(ThreadPoolEmptyEventListener::apply);
         }
@@ -231,6 +253,14 @@ public class SmartThreadPool {
         return lock;
     }
 
+    public boolean isClosed() {
+        return closed;
+    }
+
+    public void setClosed(boolean closed) {
+        this.closed = closed;
+    }
+
     public boolean isAutoClose() {
         return autoClose;
     }
@@ -247,6 +277,17 @@ public class SmartThreadPool {
         this.autoClose = autoClose;
     }
 
+    public boolean isPaused() {
+        return paused;
+    }
+
+    public void setPaused(boolean paused) {
+        this.paused = paused;
+        if (!paused) {
+            checkSmartThreadPoolState();
+        }
+    }
+
     @Override
     public String toString() {
         return new ToStringBuilder(this, ToStringStyle.JSON_STYLE)
@@ -257,6 +298,8 @@ public class SmartThreadPool {
                 .append("runningThreadPoolMaxSize", runningThreadPoolMaxSize)
                 .append("interrupted", interrupted)
                 .append("started", started)
+                .append("paused", paused)
+                .append("closed", closed)
                 .toString();
     }
 
